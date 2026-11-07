@@ -1,3 +1,5 @@
 import { defineConfig } from 'vite';
 import collectorPlugin from './server/collector-plugin.js';
-export default defineConfig({plugins:[collectorPlugin()],server:{host:'127.0.0.1'}});
+import predictionsPlugin from './server/predictions-plugin.js';
+
+export default defineConfig({ plugins: [collectorPlugin(), predictionsPlugin()], server: { host: '127.0.0.1' } });
