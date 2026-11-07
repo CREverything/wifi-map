@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env*
+!.env.example
+extractor/data/
+.venv/
+__pycache__/
+*.pyc

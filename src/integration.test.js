@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {nextBoundary,PERIOD} from './schedule.js';
+import {METRICS,metricRows} from './metrics.js';
+import {validateModelResponse} from './data.js';
+import {createSimulation} from './simulation.js';
+import {validRequest} from '../server/collector-plugin.js';
+test('schedule aligns to wall clock, including boundaries and resume',()=>{assert.equal(nextBoundary(0),PERIOD);assert.equal(nextBoundary(PERIOD-1),PERIOD);assert.equal(nextBoundary(PERIOD),2*PERIOD);assert.equal(nextBoundary(17*PERIOD+123),18*PERIOD);});
+test('simulated metrics survive response validation',()=>{const data=validateModelResponse(createSimulation());for(const metric of METRICS.slice(0,4))assert.equal(metricRows(data.areas,metric).length,200);});
+test('missing metrics remain absent rather than invented',()=>assert.equal(metricRows([{intensity:.5}],METRICS[1]).length,0));
+test('invalid metric values and malformed trigger requests are rejected',()=>{const data=createSimulation();data.areas[0].metrics.latencyMs=-1;assert.throws(()=>validateModelResponse(data));const p={latitude:32,longitude:-117,accuracy:10,speedtest:false,firestore:false};assert.ok(validRequest(p));for(const bad of [{latitude:NaN},{longitude:181},{accuracy:-1},{speedtest:'yes'}])assert.ok(!validRequest({...p,...bad}));});

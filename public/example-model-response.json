@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "summary": "Illustrative model response only. These areas are synthetic, not live Wi-Fi findings. Red intensity is supplied by the model; its meaning will be defined with your backend.",
+  "areas": [
+    {
+      "latitude": 32.7157,
+      "longitude": -117.1611,
+      "radiusMeters": 150,
+      "intensity": 0.9,
+      "explanation": "Example area with high overlay intensity."
+    },
+    {
+      "latitude": 32.7181,
+      "longitude": -117.1642,
+      "radiusMeters": 100,
+      "intensity": 0.5,
+      "explanation": "Example area with medium overlay intensity."
+    },
+    {
+      "latitude": 32.7129,
+      "longitude": -117.1576,
+      "radiusMeters": 120,
+      "intensity": 0.2,
+      "explanation": "Example area with low overlay intensity."
+    }
+  ]
+}
