@@ -1,0 +1,6 @@
+# Local credentials; keep these outside version control.
+.env
+.env.*
+!.env.example
+secrets/
+*service-account*.json

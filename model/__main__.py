@@ -22,8 +22,25 @@ def main():
     score = commands.add_parser("evaluate")
     score.add_argument("data")
     score.add_argument("--method", choices=["baseline", "random_forest"], default="random_forest")
+    firestore_train = commands.add_parser("firestore-train", help="Read collector measurements from Firestore")
+    firestore_train.add_argument("artifact")
+    firestore_train.add_argument("--collection", default="measurements")
+    firestore_train.add_argument("--env-file", default=".env")
+    firestore_predict = commands.add_parser("firestore-predict", help="Predict and write a new predictions document")
+    firestore_predict.add_argument("artifact")
+    firestore_predict.add_argument("request", help="Canonical or collector-style JSON object")
+    firestore_predict.add_argument("--method", choices=["baseline", "random_forest"], default="baseline")
+    firestore_predict.add_argument("--env-file", default=".env")
     args = parser.parse_args()
-    if args.command == "demo":
+    if args.command in ("firestore-train", "firestore-predict"):
+        from .firestore_io import create_client, train_from_firestore, predict_to_firestore
+        client = create_client(args.env_file)
+        if args.command == "firestore-train":
+            result = train_from_firestore(client, args.artifact, args.collection)
+        else:
+            result = predict_to_firestore(client, Predictor.load(args.artifact),
+                json.loads(args.request), args.method, model_id=Path(args.artifact).name)
+    elif args.command == "demo":
         predictor = Predictor(train(generate()))
         request = dict(latitude=32.88, longitude=-117.23, network_id="synthetic-demo-network", wifi_band="5GHz", hour=14)
         result = {"warning": "SYNTHETIC DEVELOPMENT DATA ONLY; not verified real-world results",

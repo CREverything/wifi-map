@@ -107,3 +107,52 @@ def predict(request: PredictionRequest):
 ## Limits and reliability
 
 Reliability is deliberately `low` for every available estimate, and `unavailable` otherwise. This is a coverage heuristic, not a calibrated probability or confidence interval. Three neighboring records may be correlated or repeated at one location. Radius/count thresholds are configurable on Predictor; defaults require three neighbors within 500m. Neither method models walls, building floors, congestion, device differences comprehensively, nor measurement age. Forests can smooth or memorize local patterns and cannot justify predictions for new networks. Refresh measurements and retrain when conditions change. The artifact records all source types conservatively: if any training data is synthetic, every response flags that fact. Never present synthetic estimates as verified real-world performance.
+
+## Firestore collector integration
+
+`firestore_io.py` reads the existing `measurements` collection and writes new documents only to `predictions`. No database migration is needed. Existing JSON commands still work.
+
+```sh
+pip install -r model/requirements-firestore.txt
+cp model/.env.example .env
+# Edit .env with your real project ID and service-account file path.
+python -m model firestore-train model/firestore.joblib
+python -m model firestore-predict model/firestore.joblib '{"latitude":32.88415,"longitude":-117.23310,"bssid":"aa:bb:cc:dd:ee:ff","band_ghz":"5","measured_at":"2026-11-07T22:22:42Z"}' --method random_forest
+```
+
+Credentials are loaded using Google Application Default Credentials and `GOOGLE_APPLICATION_CREDENTIALS`. `.env` is loaded explicitly without overriding existing environment variables. Keep the service-account JSON in the ignored `secrets/` folder. No credentials are included here. `--env-file` selects another .env path; `FIRESTORE_DATABASE` defaults to `(default)`. Use the Firebase **project ID**, which may differ from its display name. The separate Firestore requirements file adds optional dependencies; the existing lock file covers the core model only.
+
+Collector mappings:
+
+| Firestore field | Model field |
+|---|---|
+| `network_id`, or nonempty `bssid` | Network identity; BSSIDs become lowercase `bssid:<value>` |
+| `band_ghz` (`"5"`, `5`, `"2.4"`, `"6"`) | `wifi_band` (`5GHz`, `2.4GHz`, `6GHz`) |
+| `measured_at` (Firestore datetime or timezone-aware ISO string) | `timestamp` |
+| `device.os_name` | `device_type` |
+| `download_mbps`, `upload_mbps`, `rssi_dbm`, `latency_ms` | Same names and units |
+| `packet_loss_pct` | `packet_loss` divided by 100 |
+| `session_id`, when collected | Held-out evaluation grouping |
+
+Documents from this collector default to `data_source: real`; explicitly label any synthetic database records `synthetic`. Targets may be null. Additional fields such as channel, location accuracy, speedtest server, errors, and device ID are not prediction features. The adapter uses `latency_ms`, not `speedtest_ping_ms`; neither is currently an input feature.
+
+**The supplied example has null BSSID and no network_id, so it is skipped.** Update the collector to provide a stable AP identity, or add an explicit network_id only when you know records belong to the same network. Do not substitute device_id, SSID, cell_id, or a global `unknown` identity. Training reports document IDs/reasons for skipped records and fails without saving when all records are unusable. Three usable nearby measurements per target are still required. One database document is insufficient.
+
+Prediction requests may use collector-style fields (as above) or the original canonical request JSON. Use the same identity convention as training: a BSSID request resolves to `bssid:<lowercase BSSID>`. `firestore-predict` loads an existing model; it does not retrain or continuously watch the database. Run `firestore-train` again after collecting more data.
+
+Each prediction document includes flat download/upload/RSSI estimates, status, method, per-target nearby counts, reliability, synthetic flags, location, network, band, request time, creation time, model filename, and Firestore training provenance. Unavailable results are stored with null targets. A new prediction document ID is returned on each call. A prediction at a training location demonstrates integration, not held-out accuracy.
+
+For backend code:
+
+```python
+from model import Predictor
+from model.firestore_io import create_client, predict_to_firestore
+
+client = create_client()
+predictor = Predictor.load("model/firestore.joblib")
+# Call inside your backend endpoint; request is a JSON-compatible dictionary.
+result = predict_to_firestore(client, predictor, request, method="random_forest",
+                              model_id="firestore.joblib")
+```
+
+Firestore tests use mocked clients and never access a live project. To evaluate real collector records separately, call `rows, skipped = read_measurements(client)` and then `evaluate(rows)`. Collect session_id for meaningful session splits, or enough spatial blocks for the spatial fallback.
