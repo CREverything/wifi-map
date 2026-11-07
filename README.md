@@ -39,9 +39,26 @@ python -m model firestore-train model/firestore.joblib
 python -m model firestore-predict model/firestore.joblib '{"latitude":32.884,"longitude":-117.233,"bssid":"aa:bb:cc:dd:ee:ff","band_ghz":"5"}'
 ```
 
+## Demo orchestrator
+
+One command runs continuous collection and model updates until you press **Ctrl+C**:
+
+```sh
+python3 demo_runner.py --browser-location        # browser asks for location once
+python3 demo_runner.py --lat 32.88 --lon -117.23 # or give coordinates manually
+```
+
+- Location is resolved once at startup and reused for every measurement.
+- A measurement (RSSI, ping) is uploaded to `measurements` about every **10 s**; a full speed test runs about every **5 min** (that sample takes up to a minute).
+- The model retrains from Firestore and writes a prediction for your location to `predictions` at startup and about every **5 min**.
+- Tune with `--extract-interval`, `--speedtest-interval` (0 disables), `--ml-interval` (seconds), and `--method`.
+
+Every console line is timestamped. Success looks like `Measurement uploaded: <id>` and `ML update completed: prediction <id> status=...`; problems print as `Extraction failed: ...`, `Extraction warning: ...`, or `ML update failed: ...` and the task retries on its next run. Failed uploads are saved to `extractor/data/` as a backup. A prediction stays `status=unavailable` until at least 3 measurements exist within 500 m.
+
 ## Tests
 
 ```sh
 python -m unittest discover -s extractor/tests
 python -m unittest discover -s model/tests
+python -m unittest discover -s tests
 ```
