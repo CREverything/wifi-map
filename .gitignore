@@ -1,0 +1,12 @@
+# Environment variables and Firebase credentials
+.env
+secrets/
+
+# Python environment and cache
+.venv/
+__pycache__/
+
+# Local Wi-Fi measurements and test data
+extractor/data/
+*.csv
+*.jsonl
