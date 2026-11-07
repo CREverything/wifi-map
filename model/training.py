@@ -1,5 +1,4 @@
 """Fit separate forests per network, band, and available target."""
-import numpy as np
 import joblib
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor

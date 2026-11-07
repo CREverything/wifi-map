@@ -1,22 +1,6 @@
 # WiFi Map prediction model
 
-Python estimates for download Mbps, upload Mbps, and RSSI dBm. Run commands below from the repository root. No database or frontend setup is required.
-
-## Setup and demo
-
-Python 3.10+ is required.
-
-```sh
-python3 -m venv model/.venv
-source model/.venv/bin/activate
-pip install -r model/requirements.txt
-# To reproduce the tested Python 3.13 environment exactly:
-# pip install -r model/requirements-lock.txt
-python -m unittest discover -s model/tests -v
-python -m model demo
-```
-
-The demo generates **synthetic development data only**, trains in memory, and prints both prediction methods. It does not establish real-world accuracy. No real measurements or verified accuracy are included in this repository.
+Python estimates for download Mbps, upload Mbps, and RSSI dBm. Setup and tests are in the [root README](../README.md); run the commands below from the repository root.
 
 ## Files and algorithms
 
@@ -25,9 +9,9 @@ The demo generates **synthetic development data only**, trains in memory, and pr
 - `training.py`: separate scikit-learn random forests for each network, band, and target; save with joblib.
 - `prediction.py`: load artifacts and return JSON-compatible estimates.
 - `evaluation.py`: held-out session or spatial-block evaluation.
-- `synthetic.py`: reproducible artificial data.
-- `__main__.py`: train, predict, evaluate, and demo commands.
-- `tests/test_model.py`: automated behavior checks.
+- `firestore_io.py`: read collector measurements and write `predictions` documents.
+- `__main__.py`: train, predict, evaluate, and Firestore commands.
+- `tests/`: automated behavior checks on a small fixed fixture.
 
 The default baseline averages measurements within 500 meters on the exact same network and band, weighted by inverse squared distance (with a one-meter floor). Each target requires at least three measured values nearby; otherwise that target is null. Missing targets do not discard other usable measurements.
 
@@ -102,7 +86,7 @@ def predict(request: PredictionRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 ```
 
-`Predictor(train(rows)).predict(request)` also works without disk storage. Return values include `download_mbps`, `upload_mbps`, `rssi_dbm`, `method`, `is_estimate`, `status`, `reliability`, `data_sources`, `synthetic_data_used`, and per-target coverage details. Null targets mean unavailable; the frontend should leave those map cells empty. Use the same Python environment and pinned dependency versions when sharing artifacts; retrain after dependency upgrades.
+`Predictor(train(rows)).predict(request)` also works without disk storage. Return values include `download_mbps`, `upload_mbps`, `rssi_dbm`, `method`, `is_estimate`, `status`, `reliability`, `data_sources`, `synthetic_data_used`, and per-target coverage details. Null targets mean unavailable; the frontend should leave those map cells empty. Use the same Python environment and dependency versions when sharing artifacts; retrain after dependency upgrades.
 
 ## Limits and reliability
 
@@ -113,14 +97,12 @@ Reliability is deliberately `low` for every available estimate, and `unavailable
 `firestore_io.py` reads the existing `measurements` collection and writes new documents only to `predictions`. No database migration is needed. Existing JSON commands still work.
 
 ```sh
-pip install -r model/requirements-firestore.txt
-cp model/.env.example .env
-# Edit .env with your real project ID and service-account file path.
+# Needs the root .env described in the root README.
 python -m model firestore-train model/firestore.joblib
 python -m model firestore-predict model/firestore.joblib '{"latitude":32.88415,"longitude":-117.23310,"bssid":"aa:bb:cc:dd:ee:ff","band_ghz":"5","measured_at":"2026-11-07T22:22:42Z"}' --method random_forest
 ```
 
-Credentials are loaded using Google Application Default Credentials and `GOOGLE_APPLICATION_CREDENTIALS`. `.env` is loaded explicitly without overriding existing environment variables. Keep the service-account JSON in the ignored `secrets/` folder. No credentials are included here. `--env-file` selects another .env path; `FIRESTORE_DATABASE` defaults to `(default)`. Use the Firebase **project ID**, which may differ from its display name. The separate Firestore requirements file adds optional dependencies; the existing lock file covers the core model only.
+Credentials are loaded using Google Application Default Credentials and `GOOGLE_APPLICATION_CREDENTIALS`. `.env` is loaded explicitly without overriding existing environment variables. Keep the service-account JSON in the ignored `secrets/` folder. No credentials are included here. `--env-file` selects another .env path; `FIRESTORE_DATABASE` defaults to `(default)`. Use the Firebase **project ID**, which may differ from its display name.
 
 Collector mappings:
 
@@ -136,11 +118,24 @@ Collector mappings:
 
 Documents from this collector default to `data_source: real`; explicitly label any synthetic database records `synthetic`. Targets may be null. Additional fields such as channel, location accuracy, speedtest server, errors, and device ID are not prediction features. The adapter uses `latency_ms`, not `speedtest_ping_ms`; neither is currently an input feature.
 
-**The supplied example has null BSSID and no network_id, so it is skipped.** Update the collector to provide a stable AP identity, or add an explicit network_id only when you know records belong to the same network. Do not substitute device_id, SSID, cell_id, or a global `unknown` identity. Training reports document IDs/reasons for skipped records and fails without saving when all records are unusable. Three usable nearby measurements per target are still required. One database document is insufficient.
+**Location-only mode (current default):** `GROUP_BY_NETWORK = False` in `config.py` pools every measurement regardless of BSSID or band, because macOS hides BSSIDs from the collector. Estimates then depend on location (plus time and device type) only, and requests need just `latitude` and `longitude`. Set it to `True` and retrain once collectors report BSSIDs; then records without a `bssid` or `network_id` are skipped, and device_id, SSID, or cell_id must not be substituted. Training reports document IDs/reasons for skipped records and fails without saving when all records are unusable. Three usable nearby measurements per target are still required. One database document is insufficient.
 
 Prediction requests may use collector-style fields (as above) or the original canonical request JSON. Use the same identity convention as training: a BSSID request resolves to `bssid:<lowercase BSSID>`. `firestore-predict` loads an existing model; it does not retrain or continuously watch the database. Run `firestore-train` again after collecting more data.
 
-Each prediction document includes flat download/upload/RSSI estimates, status, method, per-target nearby counts, reliability, synthetic flags, location, network, band, request time, creation time, model filename, and Firestore training provenance. Unavailable results are stored with null targets. A new prediction document ID is returned on each call. A prediction at a training location demonstrates integration, not held-out accuracy.
+Each call writes a new document to `predictions/<prediction_id>`, named like collector measurements:
+
+| Field | Meaning |
+|---|---|
+| `prediction_id` | Random hex ID, also the document ID (like `measurement_id`) |
+| `predicted_at` | Firestore Timestamp when the estimate was made (like `measured_at`) |
+| `latitude`, `longitude`, `bssid`, `band_ghz` | Same names and formats as `measurements` (`band_ghz` is `"2.4"`, `"5"`, `"6"`) |
+| `download_mbps`, `upload_mbps`, `rssi_dbm` | Estimates in the same units; null when unavailable |
+| `network_id` | Model network identity (`bssid:<lowercase>` or explicit) |
+| `requested_at`, `requested_hour` | Time the estimate is for, if supplied (Timestamp / local hour) |
+| `status`, `reliability`, `method`, `is_estimate`, `targets` | Coverage details per target |
+| `data_sources`, `synthetic_data_used`, `model_id`, `training` | Provenance; `training.trained_at` is a Timestamp |
+
+Unavailable results are stored with null targets. A prediction at a training location demonstrates integration, not held-out accuracy.
 
 For backend code:
 

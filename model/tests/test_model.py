@@ -2,19 +2,20 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 from model import Predictor
 from model.training import train
-from model.synthetic import generate
 from model.evaluation import evaluate
 from model.preprocessing import normalize
+from fixtures import NETWORK, sample_rows
 
 
 class ModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.rows = generate(60)
+        cls.rows = sample_rows(60)
         cls.artifact = train(cls.rows)
-        cls.query = dict(latitude=32.88, longitude=-117.23, network_id="synthetic-demo-network", wifi_band="5GHz")
+        cls.query = dict(latitude=32.88, longitude=-117.23, network_id=NETWORK, wifi_band="5GHz")
 
     def test_both_methods_and_roundtrip(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -24,14 +25,22 @@ class ModelTests(unittest.TestCase):
             for method in ("baseline", "random_forest"):
                 result = predictor.predict(self.query, method)
                 self.assertEqual(result["status"], "available")
-                self.assertTrue(result["synthetic_data_used"])
+                self.assertFalse(result["synthetic_data_used"])
                 json.dumps(result, allow_nan=False)
 
-    def test_no_cross_network_band_or_distant_estimates(self):
+    def test_location_only_pools_networks_but_not_distance(self):
         predictor = Predictor(self.artifact)
-        for changes in ({"network_id": "unknown"}, {"wifi_band": "2.4GHz"}, {"latitude": 33.5}):
-            for method in ("baseline", "random_forest"):
-                self.assertEqual(predictor.predict({**self.query, **changes}, method)["status"], "unavailable")
+        for method in ("baseline", "random_forest"):
+            self.assertEqual(predictor.predict(dict(latitude=32.88, longitude=-117.23), method)["status"], "available")
+            self.assertEqual(predictor.predict({**self.query, "network_id": "other"}, method)["status"], "available")
+            self.assertEqual(predictor.predict({**self.query, "latitude": 33.5}, method)["status"], "unavailable")
+
+    def test_no_cross_network_band_or_distant_estimates_when_grouped(self):
+        with mock.patch("model.config.GROUP_BY_NETWORK", True):
+            predictor = Predictor(train(self.rows))
+            for changes in ({"network_id": "unknown"}, {"wifi_band": "2.4GHz"}, {"latitude": 33.5}):
+                for method in ("baseline", "random_forest"):
+                    self.assertEqual(predictor.predict({**self.query, **changes}, method)["status"], "unavailable")
 
     def test_missing_targets_and_context(self):
         rows = [{k: v for k, v in row.items() if k not in ("rssi_dbm", "hour", "device_type")} for row in self.rows]
@@ -64,9 +73,8 @@ class ModelTests(unittest.TestCase):
 
     def test_evaluation(self):
         with self.assertRaises(ValueError):
-            evaluate(self.rows)
-        real = [{**r, "data_source": "real"} for r in self.rows]  # exercise code only, not empirical validation
-        report = evaluate(real)
+            evaluate([{**r, "data_source": "synthetic"} for r in self.rows])
+        report = evaluate(self.rows)  # exercises code only, not empirical validation
         for stats in report["targets"].values():
             self.assertIsNotNone(stats["mae"])
             self.assertGreaterEqual(stats["rmse"], stats["mae"] - 1e-9)

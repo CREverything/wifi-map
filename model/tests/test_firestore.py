@@ -1,12 +1,12 @@
 from datetime import datetime, timezone
 from unittest import TestCase
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import tempfile
 from pathlib import Path
 from model.firestore_io import convert_document, read_measurements, train_from_firestore, predict_to_firestore
-from model.synthetic import generate
 from model.training import train
 from model.prediction import Predictor
+from fixtures import sample_rows
 
 
 def collector():
@@ -19,13 +19,24 @@ def collector():
 class FirestoreTests(TestCase):
     def test_conversion(self):
         row = convert_document(collector())
-        self.assertEqual(row["wifi_band"], "5GHz")
-        self.assertEqual(row["network_id"], "bssid:aa:bb:cc:dd:ee:ff")
+        self.assertEqual(row["wifi_band"], "all")
+        self.assertEqual(row["network_id"], "all")
         self.assertEqual(row["packet_loss"], .02)
         self.assertEqual(row["device_type"], "Darwin")
         self.assertEqual(row["data_source"], "real")
         self.assertEqual(convert_document({**collector(), "rssi_dbm": None})["rssi_dbm"], None)
 
+    def test_location_only_accepts_missing_bssid_and_band(self):
+        row = convert_document({**collector(), "bssid": None, "band_ghz": None})
+        self.assertEqual(row["network_id"], "all")
+
+    @patch("model.config.GROUP_BY_NETWORK", True)
+    def test_grouped_conversion(self):
+        row = convert_document(collector())
+        self.assertEqual(row["wifi_band"], "5GHz")
+        self.assertEqual(row["network_id"], "bssid:aa:bb:cc:dd:ee:ff")
+
+    @patch("model.config.GROUP_BY_NETWORK", True)
     def test_missing_identity_is_not_device_or_ssid(self):
         with self.assertRaisesRegex(ValueError, "missing_network_identity"):
             convert_document({**collector(), "bssid": None, "ssid": "public", "device": {"device_id": "abc"}})
@@ -34,7 +45,7 @@ class FirestoreTests(TestCase):
         good, bad = MagicMock(), MagicMock()
         good.id, bad.id = "good", "bad"
         good.to_dict.return_value = collector()
-        bad.to_dict.return_value = {**collector(), "bssid": None}
+        bad.to_dict.return_value = {**collector(), "latitude": 999}
         client = MagicMock()
         client.collection.return_value.stream.return_value = [good, bad]
         rows, skipped = read_measurements(client)
@@ -63,11 +74,28 @@ class FirestoreTests(TestCase):
         self.assertEqual(document["data_sources"], ["real"])
         self.assertTrue(document["is_estimate"])
         self.assertEqual(document["training"]["row_count"], 3)
+        self.assertIsInstance(document["training"]["trained_at"], datetime)
+
+    def test_prediction_fields_match_collector_naming(self):
+        client = MagicMock()
+        predictor = Predictor(train([{**r, "network_id": "bssid:aa:bb:cc:dd:ee:ff"} for r in sample_rows(10)]))
+        result = predict_to_firestore(client, predictor, {**collector(), "measured_at": "2026-11-07T22:00:00Z"})
+        reference = client.collection.return_value.document
+        reference.assert_called_with(result["prediction_id"])
+        document = reference.return_value.set.call_args.args[0]
+        self.assertEqual(document["prediction_id"], result["prediction_id"])
+        self.assertEqual(document["bssid"], "aa:bb:cc:dd:ee:ff")
+        self.assertEqual(document["band_ghz"], "5")
+        self.assertNotIn("wifi_band", document)
+        self.assertEqual(document["requested_at"], datetime(2026, 11, 7, 22, tzinfo=timezone.utc))
+        self.assertEqual(document["predicted_at"].tzinfo, timezone.utc)
+        for target in ("download_mbps", "upload_mbps", "rssi_dbm"):
+            self.assertIn(target, document)
 
     def test_unavailable_prediction_written_without_invented_values(self):
         client = MagicMock()
-        predictor = Predictor(train(generate(10)))
-        result = predict_to_firestore(client, predictor, collector())
+        predictor = Predictor(train(sample_rows(10)))
+        result = predict_to_firestore(client, predictor, {**collector(), "latitude": 33.5})
         self.assertEqual(result["status"], "unavailable")
         self.assertIsNone(result["download_mbps"])
 

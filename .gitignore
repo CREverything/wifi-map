@@ -1,6 +1,48 @@
-# Local credentials; keep these outside version control.
+# Environment variables and secrets
 .env
 .env.*
 !.env.example
 secrets/
-*service-account*.json
+*serviceAccountKey.json
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local Wi-Fi measurements
+extractor/data/*
+!extractor/data/.gitkeep
+
+# ML model artifacts
+*.pkl
+*.joblib
+*.pickle
+*.h5
+*.keras
+*.pt
+*.pth
+checkpoints/
+
+# Generated ML data
+model/data/
+model/outputs/
+model/artifacts/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# VS Code local settings
+.vscode/

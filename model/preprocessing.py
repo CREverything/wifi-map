@@ -2,11 +2,14 @@
 import math
 import numpy as np
 import pandas as pd
+from . import config
 from .config import TARGETS, NUMERIC, CATEGORICAL
 
 
 def normalize(row, training=False):
     row = dict(row)
+    if not config.GROUP_BY_NETWORK:
+        row["network_id"] = row["wifi_band"] = config.ALL_NETWORKS
     for key, low, high in (("latitude", -90, 90), ("longitude", -180, 180)):
         value = float(row[key])
         if not math.isfinite(value) or not low <= value <= high:

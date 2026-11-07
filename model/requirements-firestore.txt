@@ -1,3 +1,0 @@
--r requirements.txt
-google-cloud-firestore>=2.19,<3
-python-dotenv>=1,<2

@@ -1,0 +1,14 @@
+# Collector (extractor/)
+speedtest-cli>=2.1.3
+firebase-admin>=6.0
+pymacos>=1.25.0; platform_system == "Darwin"
+
+# Model (model/)
+numpy>=1.26,<3
+pandas>=2.2,<4
+scikit-learn>=1.5,<2
+joblib>=1.4,<2
+google-cloud-firestore>=2.19,<3
+
+# Shared
+python-dotenv>=1.0,<2
