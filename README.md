@@ -49,11 +49,11 @@ python -m model firestore-predict model/firestore.joblib '{"latitude":32.884,"lo
 One command runs continuous collection and model updates until you press **Ctrl+C**:
 
 ```sh
-python3 demo_runner.py --browser-location        # browser asks for location once
+python3 demo_runner.py --browser-location        # follows you as you walk (one permission prompt)
 python3 demo_runner.py --lat 32.88 --lon -117.23 # or give coordinates manually
 ```
 
-- Location is resolved once at startup and reused for every measurement.
+- `--browser-location` opens a tab that asks permission once and then streams your position (`watchPosition`), so each measurement is stamped where you are when it's taken. **Keep that tab open** (ideally visible; browsers may throttle hidden tabs). If no update arrives for 2 min, the console warns and the last known position is used. `--lat/--lon` pins every measurement to one fixed spot.
 - A measurement (RSSI, ping) is uploaded to `measurements` about every **10 s**; a full speed test runs about every **5 min** (that sample takes up to a minute).
 - The model retrains from Firestore at startup and about every **5 min**, then writes a prediction to `predictions` for your location and for every other place with measurements (to ~11 m, up to 200 places per update). Nothing is predicted where nobody measured.
 - Tune with `--extract-interval`, `--speedtest-interval` (0 disables), `--ml-interval` (seconds), and `--method`.
@@ -64,7 +64,7 @@ Every console line is timestamped. Success looks like `Measurement uploaded: <id
 
 1. Terminal 1: `python3 demo_runner.py --browser-location --ml-interval 60` (add `--speedtest-interval 60` for a few minutes to fill the download/upload layers quickly; speed tests use a lot of bandwidth).
 2. Terminal 2: `npm run dev`, then open the printed URL. The map syncs with Firestore every minute; the tag reads **LIVE PREDICTIONS · FIRESTORE**.
-3. To map another spot, stop the runner (Ctrl+C), move, and start it again; earlier spots stay on the map.
+3. Walk around with the laptop; the console prints `Location updated: …` each time you move 15 m or more, and new spots appear on the map after the next model update. Laptop positioning is Wi-Fi based (often ±20–50 m), so expect spots to separate between buildings rather than between rooms.
 
 ## Map frontend
 
